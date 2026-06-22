@@ -30,23 +30,47 @@
   }
   header h1 { font-size: 26px; margin: 0 0 4px; }
   header .sub { font-size: 15px; opacity: .95; }
+
+  /* 모바일 상단 고정 결과 요약 */
+  .mini-verdict { display: none; }
+  @media (max-width: 820px) {
+    .mini-verdict {
+      display: flex; gap: 10px; align-items: center;
+      position: sticky; top: 0; z-index: 30;
+      background: var(--panel); border-bottom: 3px solid var(--line);
+      padding: 10px 16px; font-weight: 800;
+    }
+    .mini-verdict .e { font-size: 26px; line-height: 1; }
+    .mini-verdict.good { border-color: var(--good); }
+    .mini-verdict.warn { border-color: var(--warn); }
+    .mini-verdict.bad  { border-color: var(--bad); }
+  }
+
   .wrap {
     display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
     padding: 20px; max-width: 1100px; margin: 0 auto;
+    align-items: start;
   }
   @media (max-width: 820px) { .wrap { grid-template-columns: 1fr; } }
+  .col-results { position: sticky; top: 16px; }
+  @media (max-width: 820px) { .col-results { position: static; } }
+
   .card {
     background: var(--panel); border: 2px solid var(--line);
     border-radius: 18px; padding: 18px 20px; margin-bottom: 18px;
     box-shadow: 0 2px 10px rgba(47,125,246,.06);
+    transition: box-shadow .2s ease;
   }
+  .card:hover { box-shadow: 0 6px 22px rgba(47,125,246,.12); }
   .card h2 {
     font-size: 18px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px;
   }
+  .card h2 .spacer { margin-left: auto; }
   .step-num {
     display: inline-flex; align-items: center; justify-content: center;
     width: 30px; height: 30px; border-radius: 50%;
     background: var(--accent); color: #fff; font-size: 16px; font-weight: 700;
+    flex: 0 0 auto;
   }
   label { display: block; margin-bottom: 16px; }
   label .lbl { font-weight: 700; margin-bottom: 2px; display: block; }
@@ -55,21 +79,43 @@
     width: 100%; background: #fff; border: 2px solid var(--line);
     color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 18px; font-weight: 600;
   }
+  select { accent-color: var(--accent); }
   input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 3px solid rgba(47,125,246,.35); outline-offset: 2px;
+  }
   .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .row3 label { margin-bottom: 10px; }
   .unit { color: var(--muted); font-weight: 400; font-size: 14px; }
+
+  /* 슬라이더 + 숫자 조합 */
+  .slider-row { display: grid; grid-template-columns: 1fr 86px; gap: 12px; align-items: center; }
+  .slider-row input[type=range] {
+    width: 100%; padding: 0; accent-color: var(--accent); height: 26px; cursor: pointer; border: none; background: transparent;
+  }
+  .slider-row input[type=number] { font-size: 16px; padding: 9px 8px; text-align: center; }
+
   .seg { display: flex; gap: 6px; margin-bottom: 8px; }
   .seg button {
     flex: 1; background: var(--panel2); border: 2px solid var(--line);
     color: var(--muted); border-radius: 12px; padding: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
+    transition: background .15s, color .15s, border-color .15s;
   }
+  .seg button:hover { border-color: var(--accent); }
   .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .btn-ghost {
+    background: var(--panel2); border: 2px solid var(--line); color: var(--muted);
+    border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ---- 큰 결과 ---- */
   .big-result {
     text-align: center; border-radius: 22px; padding: 24px 20px; margin-bottom: 16px;
     border: 3px solid var(--line);
+    transition: background .25s ease, border-color .25s ease;
   }
   .big-result.good { background: #eafaf0; border-color: var(--good); }
   .big-result.warn { background: #fef6e7; border-color: var(--warn); }
@@ -81,11 +127,18 @@
   /* ---- 힘 막대 ---- */
   .bars { margin: 8px 0 4px; }
   .bar-row { margin-bottom: 14px; }
-  .bar-row .name { font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .bar-row .name { font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .bar-track { background: var(--panel2); border-radius: 10px; height: 28px; overflow: hidden; border: 1px solid var(--line); }
-  .bar-fill { height: 100%; border-radius: 10px 0 0 10px; transition: width .2s; }
+  .bar-fill { height: 100%; border-radius: 10px 0 0 10px; transition: width .25s ease, background .25s ease; min-width: 2px; }
   .bar-fill.spring { background: linear-gradient(90deg,#2f7df6,#5aa0ff); }
-  .bar-fill.need { background: linear-gradient(90deg,#9aa3b2,#c2cad6); }
+  .bar-fill.need   { background: linear-gradient(90deg,#9aa3b2,#c2cad6); }
+  .bar-fill.good   { background: linear-gradient(90deg,#16a34a,#34d399); }
+  .bar-fill.warn   { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
+  .bar-fill.bad    { background: linear-gradient(90deg,#ef4444,#f87171); }
+
+  .badge { font-size: 12px; font-weight: 800; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+  .badge.ok { background: #dcfce7; color: #166534; }
+  .badge.no { background: #fee2e2; color: #991b1b; }
 
   .chip {
     display: inline-block; background: var(--panel2); border: 2px solid var(--line);
@@ -93,7 +146,7 @@
   }
 
   svg { width: 100%; height: auto; display: block; }
-  .diag-wrap { background: var(--panel2); border-radius: 14px; padding: 10px; }
+  .diag-wrap, .chart-wrap { background: #eef3fb; border-radius: 14px; padding: 10px; }
 
   details { margin-top: 6px; background: var(--panel); border: 2px dashed var(--line); border-radius: 14px; padding: 6px 16px; }
   summary { cursor: pointer; color: var(--muted); font-weight: 700; padding: 8px 0; }
@@ -104,18 +157,25 @@
   .metric .u { color: var(--muted); font-size: 12px; font-weight: 400; }
   .test-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .pass { color: var(--good); } .fail { color: var(--bad); }
-  .chart-wrap { background: var(--panel2); border-radius: 10px; padding: 10px; margin-top: 8px; }
+  .chart-wrap { margin-top: 8px; }
+
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 8px 20px 28px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 <header>
   <h1>🌀 스프링 실험실</h1>
-  <div class="sub">스프링이 카트리지 도어를 잘 밀어낼까요? 직접 만들어서 실험해 봐요!</div>
+  <div class="sub">스프링이 카트리지 도어를 잘 밀어낼까요? 슬라이더를 움직이며 실험해 봐요!</div>
 </header>
+
+<!-- 모바일에서 위에 고정되는 결과 요약 -->
+<div id="miniVerdict" class="mini-verdict"></div>
 
 <div class="wrap">
   <!-- ============ 입력 (왼쪽) ============ -->
-  <div>
+  <div class="col-inputs">
     <div class="card">
       <h2><span class="step-num">1</span> 어떤 재료로 만들까요?</h2>
       <label>
@@ -123,17 +183,20 @@
         <span class="help">철사 종류예요. 위로 갈수록 더 튼튼해요.</span>
         <select id="material"></select>
       </label>
-      <!-- 숨은 값 (계산에 쓰임) -->
       <input id="E" type="hidden">
       <input id="Sut" type="hidden">
     </div>
 
     <div class="card">
       <h2><span class="step-num">2</span> 스프링 모양 만들기</h2>
+
       <label>
         <span class="lbl">철사 굵기 <span class="unit">(mm)</span></span>
         <span class="help">철사가 굵을수록 힘이 훨씬 세져요. 💪</span>
-        <input id="d" type="number" step="0.05" value="1.0">
+        <div class="slider-row">
+          <input id="dRange" type="range" min="0.2" max="4" step="0.05" value="1.0">
+          <input id="d" type="number" step="0.05" value="1.0" inputmode="decimal">
+        </div>
       </label>
 
       <span class="lbl" style="margin-bottom:2px">스프링 동그라미 크기</span>
@@ -145,13 +208,19 @@
       </div>
       <label>
         <span class="lbl"><span id="diaLabel">가운데 지름</span> <span class="unit">(mm)</span></span>
-        <input id="diaInput" type="number" step="0.5" value="10">
+        <div class="slider-row">
+          <input id="diaRange" type="range" min="2" max="40" step="0.5" value="10">
+          <input id="diaInput" type="number" step="0.5" value="10" inputmode="decimal">
+        </div>
       </label>
 
       <label>
         <span class="lbl">몇 바퀴 감았나요? <span class="unit">(바퀴)</span></span>
         <span class="help">적게 감을수록 힘이 세져요.</span>
-        <input id="n" type="number" step="0.5" value="5">
+        <div class="slider-row">
+          <input id="nRange" type="range" min="1" max="20" step="0.5" value="5">
+          <input id="n" type="number" step="0.5" value="5" inputmode="decimal">
+        </div>
       </label>
     </div>
 
@@ -160,12 +229,18 @@
       <label>
         <span class="lbl">스프링 팔 길이 <span class="unit">(mm)</span></span>
         <span class="help">도어를 미는 막대(팔)의 길이예요. 길수록 부드럽게 밀어요.</span>
-        <input id="L" type="number" step="1" value="20">
+        <div class="slider-row">
+          <input id="LRange" type="range" min="5" max="100" step="1" value="20">
+          <input id="L" type="number" step="1" value="20" inputmode="decimal">
+        </div>
       </label>
       <label>
         <span class="lbl">얼마나 비트나요? <span class="unit">(도)</span></span>
         <span class="help">도어를 열면 스프링이 이만큼 비틀려요. 많이 비틀수록 힘이 세져요. (90도 = 직각)</span>
-        <input id="theta" type="number" step="5" value="90">
+        <div class="slider-row">
+          <input id="thetaRange" type="range" min="0" max="270" step="5" value="90">
+          <input id="theta" type="number" step="5" value="90" inputmode="decimal">
+        </div>
       </label>
     </div>
 
@@ -173,22 +248,22 @@
       <h2><span class="step-num">4</span> 카트리지 도어 크기와 무게</h2>
       <span class="help">도어의 크기와 무게를 넣으면, 도어를 밀어내는 데 필요한 힘을 계산해요.</span>
       <div class="row3">
-        <label><span class="lbl">가로 <span class="unit">(mm)</span></span><input id="dw" type="number" step="1" value="40"></label>
-        <label><span class="lbl">세로 <span class="unit">(mm)</span></span><input id="dd" type="number" step="1" value="30"></label>
-        <label><span class="lbl">높이 <span class="unit">(mm)</span></span><input id="dh" type="number" step="1" value="10"></label>
+        <label><span class="lbl">가로 <span class="unit">(mm)</span></span><input id="dw" type="number" step="1" value="40" inputmode="decimal"></label>
+        <label><span class="lbl">세로 <span class="unit">(mm)</span></span><input id="dd" type="number" step="1" value="30" inputmode="decimal"></label>
+        <label><span class="lbl">높이 <span class="unit">(mm)</span></span><input id="dh" type="number" step="1" value="10" inputmode="decimal"></label>
       </div>
       <label>
         <span class="lbl">무게 <span class="unit">(g)</span></span>
         <span class="help">도어 하나의 무게예요. 저울이나 제품 사양을 보면 돼요.</span>
-        <input id="dweight" type="number" step="1" value="15">
+        <input id="dweight" type="number" step="1" value="15" inputmode="decimal">
       </label>
     </div>
   </div>
 
   <!-- ============ 결과 (오른쪽) ============ -->
-  <div>
+  <div class="col-results">
     <div class="card">
-      <h2>🎯 실험 결과</h2>
+      <h2>🎯 실험 결과 <span class="spacer"></span><button id="resetBtn" class="btn-ghost" type="button">🔄 처음으로</button></h2>
 
       <div id="bigForce" class="big-result"></div>
 
@@ -239,6 +314,11 @@
     </details>
   </div>
 </div>
+
+<footer>
+  🌀 스프링 실험실 · 선정 전 스크리닝용 도구 ·
+  <a href="https://github.com/mungbws1031/torsion-spring-simulator" target="_blank" rel="noopener">소스 코드</a>
+</footer>
 
 <script>
 // ===================== 재질 데이터 (계산용 — 변경 없음) =====================
@@ -309,6 +389,10 @@ function fmt(x, dp = 2) {
   if (!isFinite(x)) return "–";
   return Number(x).toLocaleString("en-US", { maximumFractionDigits: dp, minimumFractionDigits: dp });
 }
+function badge(p) {
+  if (p == null) return "";
+  return p ? ' <span class="badge ok">충분 ✅</span>' : ' <span class="badge no">부족 ❌</span>';
+}
 
 // 힘(N) → 친숙한 무게 비유
 function weightAnalogy(N) {
@@ -363,39 +447,41 @@ function render() {
   const pass_h = (r && haveDoor) ? r.M >= M_grav : null;
   const pass_v = (r && haveDoor) ? r.M >= M_fric : null;
 
-  // ---- 큰 결과 (쉬운 말) ----
-  const big = $("bigForce");
+  // ---- 결과 상태 결정 (큰 결과 + 모바일 요약 공용) ----
+  let st;
   if (!r) {
-    big.className = "big-result warn";
-    big.innerHTML = `<div class="emoji">🤔</div><div class="headline">값을 채워 주세요</div>
-      <div class="detail">철사 굵기·동그라미 크기·바퀴 수를 넣으면 실험이 시작돼요!</div>`;
+    st = { cls: "warn", emoji: "🤔", headline: "값을 채워 주세요",
+           detail: "철사 굵기·동그라미 크기·바퀴 수를 넣으면 실험이 시작돼요!" };
   } else if (!haveDoor) {
-    big.className = "big-result good";
-    big.innerHTML = `<div class="emoji">💙</div><div class="headline">이 스프링은 ${fmt(r.F,1)} N 으로 밀어요</div>
-      <div class="detail">4번에 도어 크기와 무게를 넣으면 충분한지 알려줄게요!</div>`;
+    st = { cls: "good", emoji: "💙", headline: `이 스프링은 ${fmt(r.F,1)} N 으로 밀어요`,
+           detail: "4번에 도어 크기와 무게를 넣으면 충분한지 알려줄게요!" };
   } else if (pass_h) {
-    big.className = "big-result good";
-    big.innerHTML = `<div class="emoji">🎉</div><div class="headline">어느 방향이든 도어를 잘 밀어내요!</div>
-      <div class="detail">내 스프링 힘 <b>${fmt(r.F,1)} N</b> — 눕혀서도 세워서도 충분해요.</div>`;
+    st = { cls: "good", emoji: "🎉", headline: "어느 방향이든 도어를 잘 밀어내요!",
+           detail: `내 스프링 힘 <b>${fmt(r.F,1)} N</b> — 눕혀서도 세워서도 충분해요.` };
   } else if (pass_v) {
-    big.className = "big-result warn";
-    big.innerHTML = `<div class="emoji">😅</div><div class="headline">세워서 쓰면 OK, 눕히면 약해요</div>
-      <div class="detail">세워서(마찰만)는 되는데, 눕혀서 무게를 들어올리기엔 힘이 모자라요.<br>
-      👉 철사를 굵게, 동그라미를 작게 해 보세요!</div>`;
+    st = { cls: "warn", emoji: "😅", headline: "세워서 쓰면 OK, 눕히면 약해요",
+           detail: "세워서(마찰만)는 되는데, 눕혀서 무게를 들어올리기엔 힘이 모자라요.<br>👉 철사를 굵게, 동그라미를 작게 해 보세요!" };
   } else {
-    big.className = "big-result bad";
-    big.innerHTML = `<div class="emoji">😟</div><div class="headline">힘이 약해요</div>
-      <div class="detail">눕혀서도 세워서도 도어를 밀어내기 부족해요.<br>
-      👉 철사를 굵게, 동그라미를 작게, 바퀴를 적게 해 보세요!</div>`;
+    st = { cls: "bad", emoji: "😟", headline: "힘이 약해요",
+           detail: "눕혀서도 세워서도 도어를 밀어내기 부족해요.<br>👉 철사를 굵게, 동그라미를 작게, 바퀴를 적게 해 보세요!" };
   }
+  const big = $("bigForce");
+  big.className = "big-result " + st.cls;
+  big.innerHTML = `<div class="emoji">${st.emoji}</div><div class="headline">${st.headline}</div><div class="detail">${st.detail}</div>`;
+  const mini = $("miniVerdict");
+  mini.className = "mini-verdict " + st.cls;
+  mini.innerHTML = `<span class="e">${st.emoji}</span><span>${st.headline}</span>`;
 
   // ---- 힘 막대 (스프링 / 눕혀서 / 세워서) ----
   const springF = r ? r.F : 0;
   const maxF = Math.max(springF, F_req_h || 0, F_req_v || 0) * 1.2 || 1;
+  let springTone = "spring";
+  if (r && haveDoor) springTone = pass_h ? "good" : (pass_v ? "warn" : "bad");
+  $("barSpring").className = "bar-fill " + springTone;
   $("barSpring").style.width = Math.min(100, springF / maxF * 100) + "%";
   $("barSpringVal").textContent = r ? fmt(springF, 1) + " N" : "–";
-  $("needHName").innerHTML = "🛏️ 눕혀서(무게 들기) 필요" + (pass_h != null ? (pass_h ? " ✅" : " ❌") : "");
-  $("needVName").innerHTML = "🧍 세워서(마찰만) 필요" + (pass_v != null ? (pass_v ? " ✅" : " ❌") : "");
+  $("needHName").innerHTML = "🛏️ 눕혀서(무게 들기) 필요" + badge(pass_h);
+  $("needVName").innerHTML = "🧍 세워서(마찰만) 필요" + badge(pass_v);
   if (haveDoor) {
     $("barNeedH").style.width = Math.min(100, F_req_h / maxF * 100) + "%";
     $("barNeedHVal").textContent = fmt(F_req_h, 1) + " N";
@@ -514,13 +600,31 @@ function runTests() {
 }
 
 // ===================== 이벤트 =====================
+const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15" };
+const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange" };
+
+function linkRange(numId, rangeId) {
+  const num = $(numId), rng = $(rangeId);
+  const onChange = () => { if (numId === "d") applyMaterial(); render(); };
+  rng.addEventListener("input", () => { num.value = rng.value; onChange(); });
+  num.addEventListener("input", () => { rng.value = num.value; onChange(); });
+}
+function syncRanges() {
+  Object.entries(RANGE_OF).forEach(([numId, rangeId]) => { $(rangeId).value = $(numId).value; });
+}
+
 function bind() {
   populateMaterials();
   applyMaterial();
   $("material").addEventListener("change", () => { applyMaterial(); render(); });
-  ["d","diaInput","n","L","theta","dw","dd","dh","dweight"].forEach(id =>
-    $(id).addEventListener("input", () => { if (id === "d") applyMaterial(); render(); }));
 
+  // 슬라이더 ↔ 숫자 연동
+  Object.entries(RANGE_OF).forEach(([numId, rangeId]) => linkRange(numId, rangeId));
+
+  // 슬라이더 없는 입력 (도어 치수·무게)
+  ["dw","dd","dh","dweight"].forEach(id => $(id).addEventListener("input", render));
+
+  // 동그라미 지름 기준 토글
   $("dmode").querySelectorAll("button").forEach(b =>
     b.addEventListener("click", () => {
       diaMode = b.dataset.mode;
@@ -528,6 +632,17 @@ function bind() {
       $("diaLabel").textContent = { mean: "가운데 지름", od: "바깥 지름", id: "안쪽 지름" }[diaMode];
       render();
     }));
+
+  // 처음으로 (기본값 복원)
+  $("resetBtn").addEventListener("click", () => {
+    Object.entries(DEFAULTS).forEach(([id, v]) => { $(id).value = v; });
+    diaMode = "mean";
+    $("dmode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "mean"));
+    $("diaLabel").textContent = "가운데 지름";
+    syncRanges();
+    applyMaterial();
+    render();
+  });
 
   runTests();
   render();
