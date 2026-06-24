@@ -259,6 +259,34 @@
         <input id="dweight" type="number" step="1" value="15" inputmode="decimal">
       </label>
     </div>
+
+    <div class="card">
+      <h2><span class="step-num">＋</span> 정밀 설정 <span style="font-size:13px;color:var(--muted);font-weight:600">(선택 · 전문가용)</span></h2>
+
+      <label>
+        <span class="lbl">프리로드 각도 θ₀ <span class="unit">(도)</span></span>
+        <span class="help">도어가 닫혔을 때도 스프링이 미리 비틀려 있는 각도예요. 닫힘을 눌러주는 "유지력"이 생겨요. (없으면 0)</span>
+        <div class="slider-row">
+          <input id="pl0Range" type="range" min="0" max="180" step="5" value="0">
+          <input id="theta0" type="number" step="5" value="0" inputmode="decimal">
+        </div>
+      </label>
+
+      <span class="lbl" style="margin-bottom:2px">얼마나 자주 여닫나요?</span>
+      <span class="help">반복이 많을수록 피로(반복 사용 중 부러짐)에 약해져요. 가끔 ~1만 · 보통 ~10만 · 자주 100만+ 회</span>
+      <div class="seg" id="lifeMode">
+        <button data-mode="low">가끔</button>
+        <button data-mode="mid">보통</button>
+        <button data-mode="high" class="active">자주</button>
+      </div>
+
+      <span class="lbl" style="margin-bottom:2px">쇼트피닝 (표면 강화)</span>
+      <span class="help">스프링 표면을 작은 알갱이로 두드려 피로에 강하게 만든 가공이에요.</span>
+      <div class="seg" id="peenMode">
+        <button data-mode="no" class="active">안 함</button>
+        <button data-mode="yes">함</button>
+      </div>
+    </div>
   </div>
 
   <!-- ============ 결과 (오른쪽) ============ -->
@@ -285,7 +313,9 @@
 
       <div style="margin-top:10px">
         <span class="chip" id="chipWeight">무게로 치면 –</span>
-        <span class="chip" id="chipSafe">튼튼함 –</span>
+        <span class="chip" id="chipFatigue">반복 –</span>
+        <span class="chip" id="chipSafe">한 번 쓸 때 –</span>
+        <span class="chip" id="chipHold">프리로드 –</span>
       </div>
     </div>
 
@@ -310,8 +340,13 @@
         <div class="metric"><div class="k">스프링 지수 C = D/d</div><div class="v"><span id="r_C">–</span></div></div>
         <div class="metric"><div class="k">토크 @θ</div><div class="v"><span id="r_M">–</span> <span class="u">N·mm</span></div></div>
         <div class="metric"><div class="k">다리 끝 힘 @θ</div><div class="v"><span id="r_F">–</span> <span class="u">N</span></div></div>
-        <div class="metric"><div class="k">굽힘응력 σ</div><div class="v"><span id="r_sigma">–</span> <span class="u">MPa</span></div></div>
-        <div class="metric"><div class="k">허용응력 / 안전율</div><div class="v"><span id="r_sf">–</span> <span class="u">SF</span></div></div>
+        <div class="metric"><div class="k">굽힘응력 σ (최대)</div><div class="v"><span id="r_sigma">–</span> <span class="u">MPa</span></div></div>
+        <div class="metric"><div class="k">정적 안전율</div><div class="v"><span id="r_sf">–</span> <span class="u">SF</span></div></div>
+        <div class="metric"><div class="k">프리로드 토크 @θ₀</div><div class="v"><span id="r_pre">–</span> <span class="u">N·mm</span></div></div>
+        <div class="metric"><div class="k">응력진폭 σa</div><div class="v"><span id="r_sa">–</span> <span class="u">MPa</span></div></div>
+        <div class="metric"><div class="k">평균응력 σm</div><div class="v"><span id="r_sm">–</span> <span class="u">MPa</span></div></div>
+        <div class="metric"><div class="k">피로강도 Se (환산)</div><div class="v"><span id="r_se">–</span> <span class="u">MPa</span></div></div>
+        <div class="metric"><div class="k">피로 안전율 (Goodman)</div><div class="v"><span id="r_nf">–</span> <span class="u">n<sub>f</sub></span></div></div>
       </div>
       <div class="chart-wrap"><svg id="chart" viewBox="0 0 520 280"></svg></div>
       <div style="margin-top:10px">
@@ -361,12 +396,35 @@ function tensileStrength(A, m, d) {
   return A * Math.pow(d, -m);
 }
 
+// 토션스프링 피로 (Shigley): R=0 굽힘 피로강도 비율 → Goodman 선도
+// 값 = 최대 굽힘응력 / Sut (A228·302SS 기준 근사). [수명버킷][쇼트피닝]
+const FATIGUE_FRAC = {
+  low:  { no: 0.80, yes: 0.80 }, // 가끔(~1만 회): 사실상 정적
+  mid:  { no: 0.53, yes: 0.62 }, // 보통(~10만 회)
+  high: { no: 0.50, yes: 0.60 }, // 자주(100만+ 회): 무한수명 근사
+};
+
+// 스프링은 θ0(닫힘)~θ(열림)을 왕복. σ는 각도에 선형 비례(Ki 일정).
+function computeFatigue(spring, thetaDeg, theta0Deg, Sut, lifeFrac) {
+  if (!spring || !Sut || !(thetaDeg > 0)) return null;
+  const sMax = spring.sigma;                                       // θ에서 최대 굽힘응력
+  const sMin = spring.sigma * (Math.min(theta0Deg, thetaDeg) / thetaDeg); // θ0에서
+  const sa = Math.abs(sMax - sMin) / 2;                            // 응력진폭
+  const sm = (sMax + sMin) / 2;                                    // 평균응력
+  const Sr = lifeFrac * Sut;                                       // R=0 굽힘 피로강도
+  const Se = (Sr / 2) / (1 - (Sr / 2) / Sut);                      // 완전반전 환산 (Goodman)
+  const nf = sa <= 0 ? Infinity : 1 / (sa / Se + sm / Sut);        // 피로 안전율
+  return { sMax, sMin, sa, sm, Se, Sr, nf };
+}
+
 // ===================== 도어 물리 상수 =====================
 const G = 9.80665;        // 중력가속도 (m/s²)
 const FRICTION_FRAC = 0.30; // 세워서 쓸 때: 무게 토크의 30%만 마찰로 가정
 
 // ===================== UI 상태 =====================
 let diaMode = "mean";
+let lifeMode = "high";   // low | mid | high (작동 빈도)
+let peenMode = "no";     // no | yes (쇼트피닝)
 const $ = (id) => document.getElementById(id);
 
 // 도어 애니메이션 상태 (입력에 따라 갱신)
@@ -507,12 +565,39 @@ function render() {
   $("chipWeight").textContent = r ? "💪 미는 힘 = " + weightAnalogy(springF) : "무게로 치면 –";
   const chipSafe = $("chipSafe");
   if (r && r.SF != null) {
-    if (r.SF >= 1.5)      chipSafe.textContent = "🛡️ 튼튼해요 (안 부러져요)";
-    else if (r.SF >= 1.0) chipSafe.textContent = "🤔 조금 빠듯해요";
-    else                  chipSafe.textContent = "⚠️ 부러질 수 있어요!";
+    if (r.SF >= 1.5)      chipSafe.textContent = "🛡️ 한 번 쓸 땐 튼튼";
+    else if (r.SF >= 1.0) chipSafe.textContent = "🛡️ 한 번 쓸 땐 빠듯";
+    else                  chipSafe.textContent = "⚠️ 한 번에도 부러질 수 있어요!";
   } else {
-    chipSafe.textContent = "🛡️ 튼튼함 –";
+    chipSafe.textContent = "🛡️ 한 번 쓸 때 –";
   }
+
+  // ---- 프리로드(닫힘 유지력) + 피로(반복 내구) ----
+  const theta0 = Math.max(0, Math.min(thetaDeg || 0, parseFloat($("theta0").value) || 0));
+  const lifeFrac = FATIGUE_FRAC[lifeMode][peenMode];
+  const preM = r ? r.kDeg * theta0 : 0;
+  const preF = (r && L > 0) ? preM / L : 0;
+  const fat = (r && Sut) ? computeFatigue(r, thetaDeg, theta0, Sut, lifeFrac) : null;
+
+  $("r_pre").textContent = r ? fmt(preM, 1) : "–";
+  $("r_sa").textContent  = fat ? fmt(fat.sa, 0) : "–";
+  $("r_sm").textContent  = fat ? fmt(fat.sm, 0) : "–";
+  $("r_se").textContent  = fat ? fmt(fat.Se, 0) : "–";
+  $("r_nf").textContent  = fat ? (fat.nf === Infinity ? "∞" : fmt(fat.nf, 2)) : "–";
+
+  const lifeLabel = { low: "1만", mid: "10만", high: "100만" }[lifeMode];
+  const chipFat = $("chipFatigue");
+  if (fat) {
+    const nfStr = fat.nf === Infinity ? "∞" : fmt(fat.nf, 1);
+    if (fat.nf >= 1.5)      chipFat.textContent = `🔁 ${lifeLabel}회도 튼튼 (피로 ${nfStr})`;
+    else if (fat.nf >= 1.0) chipFat.textContent = `🔁 ${lifeLabel}회는 빠듯 (피로 ${nfStr})`;
+    else                    chipFat.textContent = `⚠️ ${lifeLabel}회 반복하면 부러져요! (피로 ${nfStr})`;
+  } else {
+    chipFat.textContent = "🔁 반복 –";
+  }
+
+  const chipHold = $("chipHold");
+  chipHold.textContent = (theta0 > 0 && r) ? `🔒 닫힘 유지력 ${fmt(preF, 1)} N` : "🔒 프리로드 없음";
 
   drawChart(r, thetaDeg, haveDoor ? M_grav : null);
   drawDiagram(d, D, thetaDeg, r ? r.C : 0);
@@ -695,8 +780,8 @@ function runTests() {
 }
 
 // ===================== 이벤트 =====================
-const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15" };
-const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange" };
+const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0" };
+const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange", theta0:"pl0Range" };
 
 function linkRange(numId, rangeId) {
   const num = $(numId), rng = $(rangeId);
@@ -728,11 +813,27 @@ function bind() {
       render();
     }));
 
+  // 작동 빈도 / 쇼트피닝 토글
+  $("lifeMode").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      lifeMode = b.dataset.mode;
+      $("lifeMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+      render();
+    }));
+  $("peenMode").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      peenMode = b.dataset.mode;
+      $("peenMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+      render();
+    }));
+
   // 처음으로 (기본값 복원)
   $("resetBtn").addEventListener("click", () => {
     Object.entries(DEFAULTS).forEach(([id, v]) => { $(id).value = v; });
-    diaMode = "mean";
+    diaMode = "mean"; lifeMode = "high"; peenMode = "no";
     $("dmode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "mean"));
+    $("lifeMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "high"));
+    $("peenMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "no"));
     $("diaLabel").textContent = "가운데 지름";
     syncRanges();
     applyMaterial();
