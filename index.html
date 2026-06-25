@@ -227,14 +227,26 @@
 
     <div class="card">
       <h2><span class="step-num">3</span> 어떻게 쓸까요?</h2>
-      <label>
-        <span class="lbl">스프링 팔 길이 <span class="unit">(mm)</span></span>
-        <span class="help">도어를 미는 막대(팔)의 길이예요. 길수록 부드럽게 밀어요.</span>
+      <span class="lbl" style="margin-bottom:2px">스프링 다리(팔) 길이 <span class="unit">(mm)</span></span>
+      <span class="help">힌지 스프링은 양쪽에 다리가 있어요. 도어를 미는 다리의 길이(힌지축~접점)입니다. 길수록 끝힘은 약하지만 더 부드럽게 밀어요.</span>
+      <div class="seg" id="legMode">
+        <button data-mode="manual" class="active">직접 입력</button>
+        <button data-mode="auto">힘으로 자동 계산</button>
+      </div>
+      <div id="legManual">
         <div class="slider-row">
           <input id="LRange" type="range" min="5" max="100" step="1" value="20">
           <input id="L" type="number" step="1" value="20" inputmode="decimal">
         </div>
-      </label>
+      </div>
+      <div id="legAuto" style="display:none">
+        <label style="margin-bottom:8px">
+          <span class="lbl" style="font-weight:600">원하는 미는 힘 <span class="unit">(N)</span></span>
+          <input id="fwant" type="number" step="0.1" value="3" inputmode="decimal">
+        </label>
+        <div class="chip" style="margin:2px 0 6px">📏 추천 다리 길이 = <b id="legAutoOut">–</b></div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:0 2px 12px">※ 아주 긴 다리는 스프링을 조금 더 부드럽게(변형↑) 만들어요. 정밀 설계 땐 다리 변형도 반영하세요.</p>
       <label>
         <span class="lbl">얼마나 비트나요? <span class="unit">(도)</span></span>
         <span class="help">도어를 열면 스프링이 이만큼 비틀려요. 많이 비틀수록 힘이 세져요. (90도 = 직각)</span>
@@ -347,6 +359,8 @@
         <div class="metric"><div class="k">평균응력 σm</div><div class="v"><span id="r_sm">–</span> <span class="u">MPa</span></div></div>
         <div class="metric"><div class="k">피로강도 Se (환산)</div><div class="v"><span id="r_se">–</span> <span class="u">MPa</span></div></div>
         <div class="metric"><div class="k">피로 안전율 (Goodman)</div><div class="v"><span id="r_nf">–</span> <span class="u">n<sub>f</sub></span></div></div>
+        <div class="metric"><div class="k">다리 굽힘응력 (곧은 다리)</div><div class="v"><span id="r_legsig">–</span> <span class="u">MPa</span></div></div>
+        <div class="metric"><div class="k">다리 안전율</div><div class="v"><span id="r_legsf">–</span> <span class="u">SF</span></div></div>
       </div>
       <div class="chart-wrap"><svg id="chart" viewBox="0 0 520 280"></svg></div>
       <div style="margin-top:10px">
@@ -423,6 +437,7 @@ const FRICTION_FRAC = 0.30; // 세워서 쓸 때: 무게 토크의 30%만 마찰
 
 // ===================== UI 상태 =====================
 let diaMode = "mean";
+let legMode = "manual";  // manual | auto (다리 길이 결정 방식)
 let lifeMode = "high";   // low | mid | high (작동 빈도)
 let peenMode = "no";     // no | yes (쇼트피닝)
 const $ = (id) => document.getElementById(id);
@@ -485,12 +500,24 @@ function render() {
   const d = parseFloat($("d").value) || 0;
   const D = currentMeanD(d);
   const n = parseFloat($("n").value) || 0;
-  const L = parseFloat($("L").value) || 0;
   const thetaDeg = parseFloat($("theta").value) || 0;
   const E = parseFloat($("E").value) || 0;
   const Sut = parseFloat($("Sut").value) || null;
 
   const valid = d > 0 && D > d && n > 0 && E > 0;
+  // 토크 M은 다리 길이와 무관 → 먼저 산출 (L=1 기준)
+  const base = valid ? computeSpring({ E, d, D, n, L: 1, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
+
+  // 다리 길이 결정: 직접 입력 vs 원하는 힘으로 자동 계산 (L = M / F)
+  let L;
+  if (legMode === "auto") {
+    const Fwant = parseFloat($("fwant").value) || 0;
+    L = (base && Fwant > 0) ? base.M / Fwant : 0;
+    $("legAutoOut").textContent = (L > 0) ? fmt(L, 1) + " mm" : "–";
+  } else {
+    L = parseFloat($("L").value) || 0;
+  }
+
   const r = valid ? computeSpring({ E, d, D, n, L, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
 
   // 어른용 숫자
@@ -598,6 +625,12 @@ function render() {
 
   const chipHold = $("chipHold");
   chipHold.textContent = (theta0 > 0 && r) ? `🔒 닫힘 유지력 ${fmt(preF, 1)} N` : "🔒 프리로드 없음";
+
+  // ---- 다리(곧은 부분) 굽힘응력: 뿌리 모멘트 = 스프링 토크 M, 곡률보정 없음 ----
+  const legSig = r ? 32 * r.M / (Math.PI * Math.pow(d, 3)) : null;
+  const legSF  = (legSig && Sut) ? (mat.allowFrac * Sut) / legSig : null;
+  $("r_legsig").textContent = legSig ? fmt(legSig, 0) : "–";
+  $("r_legsf").textContent  = legSF ? fmt(legSF, 2) : "–";
 
   drawChart(r, thetaDeg, haveDoor ? M_grav : null);
   drawDiagram(d, D, thetaDeg, r ? r.C : 0);
@@ -780,7 +813,7 @@ function runTests() {
 }
 
 // ===================== 이벤트 =====================
-const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0" };
+const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0", fwant:"3" };
 const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange", theta0:"pl0Range" };
 
 function linkRange(numId, rangeId) {
@@ -813,6 +846,17 @@ function bind() {
       render();
     }));
 
+  // 다리 길이: 직접 입력 ↔ 힘으로 자동
+  $("legMode").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      legMode = b.dataset.mode;
+      $("legMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+      $("legManual").style.display = legMode === "manual" ? "" : "none";
+      $("legAuto").style.display   = legMode === "auto" ? "" : "none";
+      render();
+    }));
+  $("fwant").addEventListener("input", render);
+
   // 작동 빈도 / 쇼트피닝 토글
   $("lifeMode").querySelectorAll("button").forEach(b =>
     b.addEventListener("click", () => {
@@ -830,8 +874,10 @@ function bind() {
   // 처음으로 (기본값 복원)
   $("resetBtn").addEventListener("click", () => {
     Object.entries(DEFAULTS).forEach(([id, v]) => { $(id).value = v; });
-    diaMode = "mean"; lifeMode = "high"; peenMode = "no";
+    diaMode = "mean"; legMode = "manual"; lifeMode = "high"; peenMode = "no";
     $("dmode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "mean"));
+    $("legMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "manual"));
+    $("legManual").style.display = ""; $("legAuto").style.display = "none";
     $("lifeMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "high"));
     $("peenMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "no"));
     $("diaLabel").textContent = "가운데 지름";
