@@ -298,6 +298,12 @@
         <button data-mode="no" class="active">안 함</button>
         <button data-mode="yes">함</button>
       </div>
+
+      <label style="margin-top:14px">
+        <span class="lbl">세워서 마찰 비율 <span class="unit">(%)</span></span>
+        <span class="help">세워서 쓸 때 도어 무게 토크 대비 마찰 저항의 비율이에요. 모르면 30% 정도로 두세요.</span>
+        <input id="fricPct" type="number" step="5" value="30" inputmode="decimal">
+      </label>
     </div>
   </div>
 
@@ -325,6 +331,7 @@
 
       <div style="margin-top:10px">
         <span class="chip" id="chipWeight">무게로 치면 –</span>
+        <span class="chip" id="chipFull">전 구간 –</span>
         <span class="chip" id="chipFatigue">반복 –</span>
         <span class="chip" id="chipSafe">한 번 쓸 때 –</span>
         <span class="chip" id="chipHold">프리로드 –</span>
@@ -362,6 +369,7 @@
         <div class="metric"><div class="k">다리 굽힘응력 (곧은 다리)</div><div class="v"><span id="r_legsig">–</span> <span class="u">MPa</span></div></div>
         <div class="metric"><div class="k">다리 안전율</div><div class="v"><span id="r_legsf">–</span> <span class="u">SF</span></div></div>
       </div>
+      <b>전 구간 토크 마진 (닫힘→열림 · 저항 일정 가정, 보수적)</b>
       <div class="chart-wrap"><svg id="chart" viewBox="0 0 520 280"></svg></div>
       <div style="margin-top:10px">
         <b>자가 테스트 (공식 검산)</b>
@@ -536,7 +544,8 @@ function render() {
   const armDoor = Math.max(dwid, ddep, dhei) / 2;        // 무게중심까지 거리 (mm)
   const Wforce  = weightG / 1000 * G;                    // 도어 무게 힘 (N)
   const M_grav  = Wforce * armDoor;                      // 🛏️ 눕혀서: 무게 들기 토크 (N·mm)
-  const M_fric  = FRICTION_FRAC * M_grav;                // 🧍 세워서: 마찰만 (무게의 30% 가정)
+  const fricFrac = Math.max(0, (parseFloat($("fricPct").value) || 0) / 100);
+  const M_fric  = fricFrac * M_grav;                     // 🧍 세워서: 마찰만 (사용자 입력 비율)
   const haveDoor = weightG > 0 && armDoor > 0 && L > 0;
   const F_req_h = haveDoor ? M_grav / L : null;          // 비교용 힘 (N, 스프링 팔 기준)
   const F_req_v = haveDoor ? M_fric / L : null;
@@ -632,7 +641,29 @@ function render() {
   $("r_legsig").textContent = legSig ? fmt(legSig, 0) : "–";
   $("r_legsf").textContent  = legSF ? fmt(legSF, 2) : "–";
 
-  drawChart(r, thetaDeg, haveDoor ? M_grav : null);
+  // ---- 전 구간(닫힘→열림) 토크 마진 ----
+  // 스프링 토크 최소 = 닫힘 위치(프리로드) preM, 최대 = 열림 peakM.
+  // 저항(눕혀서)은 보수적으로 전 구간 일정(M_grav)으로 본다 → 최약점은 닫힘.
+  const stroke = Math.max(0, thetaDeg - theta0);
+  const peakM = r ? r.M : 0;
+  let fullPass = null, minMargin = null;
+  if (r && haveDoor) { minMargin = preM - M_grav; fullPass = minMargin >= 0; }
+
+  const chipFull = $("chipFull");
+  if (r && haveDoor) {
+    chipFull.textContent = fullPass
+      ? "🔄 전 구간(닫힘~열림) 충분"
+      : `⚠️ 닫힘 근처 부족 (여유 ${fmt(minMargin, 0)} N·mm) — 프리로드를 주세요`;
+  } else {
+    chipFull.textContent = "🔄 전 구간 –";
+  }
+
+  drawMarginChart({
+    haveDoor: !!(r && haveDoor),
+    stroke, preM, peakM,
+    M_grav: haveDoor ? M_grav : 0,
+    M_fric: haveDoor ? M_fric : 0,
+  });
   drawDiagram(d, D, thetaDeg, r ? r.C : 0);
 
   // ---- 도어 애니메이션 상태 + 설명 ----
@@ -720,35 +751,50 @@ function startAnim() {
   requestAnimationFrame(animTick);
 }
 
-// ===================== 그래프 (어른용) =====================
-function drawChart(r, thetaMax, M_req) {
+// ===================== 전 구간 토크 마진 그래프 (어른용) =====================
+// 도어 열림각 0(닫힘)~stroke(열림) 동안 스프링 토크 vs 저항 토크
+function drawMarginChart(p) {
   const svg = $("chart");
-  const W = 520, H = 280, padL = 56, padB = 40, padT = 16, padR = 16;
+  const W = 520, H = 280, padL = 58, padB = 42, padT = 18, padR = 18;
   const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
-  if (!r || thetaMax <= 0) { svg.innerHTML = `<text x="${W/2}" y="${H/2}" fill="#6b7280" text-anchor="middle">입력값을 채우세요</text>`; return; }
-  const Mmax = Math.max(r.M, M_req || 0) * 1.15 || 1;
-  const sx = (t) => x0 + (t / thetaMax) * (x1 - x0);
-  const sy = (m) => y0 - (m / Mmax) * (y0 - y1);
+  if (!p.haveDoor || p.stroke <= 0) {
+    svg.innerHTML = `<text x="${W/2}" y="${H/2}" fill="#6b7280" text-anchor="middle">도어 값을 넣으면 전 구간 마진이 보여요</text>`;
+    return;
+  }
+  const ymax = Math.max(p.peakM, p.M_grav, p.preM) * 1.15 || 1;
+  const sx = (a) => x0 + (a / p.stroke) * (x1 - x0);
+  const sy = (m) => y0 - (m / ymax) * (y0 - y1);
   let g = "";
   g += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="#d7e2f2"/>`;
   g += `<line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1}" stroke="#d7e2f2"/>`;
+  // x 라벨 (닫힘 ~ 열림)
+  g += `<text x="${x0}" y="${y0+18}" fill="#6b7280" font-size="11" text-anchor="middle">닫힘</text>`;
+  g += `<text x="${x1}" y="${y0+18}" fill="#6b7280" font-size="11" text-anchor="end">열림 ${fmt(p.stroke,0)}°</text>`;
+  g += `<text x="${(x0+x1)/2}" y="${H-4}" fill="#6b7280" font-size="11" text-anchor="middle">도어 열림각</text>`;
+  // y 눈금
   for (let i = 0; i <= 4; i++) {
-    const t = thetaMax * i / 4, x = sx(t);
-    g += `<text x="${x}" y="${y0+18}" fill="#6b7280" font-size="11" text-anchor="middle">${fmt(t,0)}°</text>`;
-  }
-  for (let i = 0; i <= 4; i++) {
-    const m = Mmax * i / 4, y = sy(m);
+    const m = ymax * i / 4, y = sy(m);
     g += `<text x="${x0-8}" y="${y+4}" fill="#6b7280" font-size="11" text-anchor="end">${fmt(m,0)}</text>`;
   }
-  g += `<text x="${(x0+x1)/2}" y="${H-4}" fill="#6b7280" font-size="11" text-anchor="middle">비틀림 각도 (도)</text>`;
-  if (M_req != null && M_req > 0 && M_req <= Mmax) {
-    const y = sy(M_req);
-    g += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="#f59e0b" stroke-dasharray="5 4"/>`;
-    g += `<text x="${x1}" y="${y-5}" fill="#f59e0b" font-size="11" text-anchor="end">필요 ${fmt(M_req,0)}</text>`;
+  // 저항선 (눕혀서=실선, 세워서=점선)
+  const yg = sy(p.M_grav);
+  g += `<line x1="${x0}" y1="${yg}" x2="${x1}" y2="${yg}" stroke="#f59e0b" stroke-width="2"/>`;
+  g += `<text x="${x1}" y="${yg-5}" fill="#f59e0b" font-size="11" text-anchor="end">🛏️ 눕혀서 저항 ${fmt(p.M_grav,0)}</text>`;
+  if (p.M_fric != null && p.M_fric > 0) {
+    const yf = sy(p.M_fric);
+    g += `<line x1="${x0}" y1="${yf}" x2="${x1}" y2="${yf}" stroke="#f59e0b" stroke-dasharray="4 4" opacity="0.6"/>`;
+    g += `<text x="${x1}" y="${yf+13}" fill="#f59e0b" font-size="10" text-anchor="end" opacity="0.85">🧍 세워서 ${fmt(p.M_fric,0)}</text>`;
   }
-  g += `<line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(thetaMax)}" y2="${sy(r.M)}" stroke="#2f7df6" stroke-width="2.5"/>`;
-  g += `<circle cx="${sx(thetaMax)}" cy="${sy(r.M)}" r="5" fill="#2f7df6"/>`;
-  g += `<text x="${sx(thetaMax)-8}" y="${sy(r.M)-8}" fill="#1f2937" font-size="11" text-anchor="end">${fmt(r.M,1)} N·mm</text>`;
+  // 스프링 토크선: 닫힘(preM) → 열림(peakM)
+  const xa = sx(0), ya = sy(p.preM), xb = sx(p.stroke), yb = sy(p.peakM);
+  g += `<line x1="${xa}" y1="${ya}" x2="${xb}" y2="${yb}" stroke="#2f7df6" stroke-width="2.5"/>`;
+  g += `<circle cx="${xa}" cy="${ya}" r="4" fill="#2f7df6"/><circle cx="${xb}" cy="${yb}" r="4" fill="#2f7df6"/>`;
+  g += `<text x="${xa+6}" y="${ya-7}" fill="#2f7df6" font-size="10">닫힘 ${fmt(p.preM,0)}</text>`;
+  g += `<text x="${xb-6}" y="${yb-7}" fill="#2f7df6" font-size="10" text-anchor="end">열림 ${fmt(p.peakM,0)}</text>`;
+  // 부족 구간이 있으면(닫힘에서 저항 위) 빨간 경고 음영
+  if (p.preM < p.M_grav) {
+    g += `<rect x="${x0}" y="${y1}" width="${(x1-x0)*0.5}" height="${y0-y1}" fill="#ef4444" opacity="0.06"/>`;
+  }
   svg.innerHTML = g;
 }
 
@@ -813,7 +859,7 @@ function runTests() {
 }
 
 // ===================== 이벤트 =====================
-const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0", fwant:"3" };
+const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0", fwant:"3", fricPct:"30" };
 const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange", theta0:"pl0Range" };
 
 function linkRange(numId, rangeId) {
@@ -835,7 +881,7 @@ function bind() {
   Object.entries(RANGE_OF).forEach(([numId, rangeId]) => linkRange(numId, rangeId));
 
   // 슬라이더 없는 입력 (도어 치수·무게)
-  ["dw","dd","dh","dweight"].forEach(id => $(id).addEventListener("input", render));
+  ["dw","dd","dh","dweight","fricPct"].forEach(id => $(id).addEventListener("input", render));
 
   // 동그라미 지름 기준 토글
   $("dmode").querySelectorAll("button").forEach(b =>
