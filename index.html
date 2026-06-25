@@ -345,6 +345,15 @@
     </div>
 
     <div class="card">
+      <h2>📏 다리 길이 → 끝에서 나오는 힘</h2>
+      <div class="diag-wrap"><svg id="legAnim" viewBox="0 0 520 185"></svg></div>
+      <p style="color:var(--muted);font-size:14px;margin:8px 2px 0">
+        빨간 화살표(F)가 다리 끝에서 도어를 미는 힘이에요.
+        다리가 길면 F가 작아지고, 짧으면 커져요 — 토크(M)는 일정!
+      </p>
+    </div>
+
+    <div class="card">
       <h2>🔍 내 스프링 그림</h2>
       <div class="diag-wrap"><svg id="diagram" viewBox="0 0 520 260"></svg></div>
       <p style="color:var(--muted);font-size:14px;margin:10px 2px 0">
@@ -452,6 +461,7 @@ const $ = (id) => document.getElementById(id);
 
 // 도어 애니메이션 상태 (입력에 따라 갱신)
 const animState = { tier: "idle", openAngle: 90 };
+const legAnimState = { L: 20, M: 0 };
 const REDUCE_MOTION = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 function populateMaterials() {
@@ -527,6 +537,8 @@ function render() {
   }
 
   const r = valid ? computeSpring({ E, d, D, n, L, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
+  legAnimState.L = L > 0 ? L : 0;
+  legAnimState.M = r ? r.M : 0;
 
   // 어른용 숫자
   $("r_kdeg").textContent  = r ? fmt(r.kDeg, 3) : "–";
@@ -744,11 +756,83 @@ function animTick(now) {
     const t = ((now - _animStart) % T) / T;
     drawDoorScene(doorAngleAt(t, animState.openAngle, tier), tier);
   }
+  // 다리 길이 애니메이션 (같은 rAF 루프에서 실행)
+  const TL = 2600, tL = ((now - _animStart) % TL) / TL;
+  const fL = legAnimState.L, fM = legAnimState.M;
+  if (fL > 0) {
+    let af;
+    if (tL < 0.62)      af = 0.15 + 0.85 * easeOut(tL / 0.62);   // 15%→100% 늘어남
+    else if (tL < 0.82) af = 1.0;                                  // 최대 길이 유지
+    else                af = 1.0 - 0.85 * easeInOut((tL - 0.82) / 0.18); // 도로 짧아짐
+    drawLegAnim(fL * af, fL, fM);
+  } else {
+    drawLegAnim(0, 1, 0);
+  }
   requestAnimationFrame(animTick);
 }
 function startAnim() {
-  if (REDUCE_MOTION) { drawDoorScene(0, animState.tier); return; } // 동작 줄이기: 정지 프레임
+  if (REDUCE_MOTION) {
+    drawDoorScene(0, animState.tier);
+    drawLegAnim(legAnimState.L, legAnimState.L, legAnimState.M);
+    return;
+  }
   requestAnimationFrame(animTick);
+}
+
+// ===================== 다리 길이 애니메이션 =====================
+function drawLegAnim(animL, fullL, fullM) {
+  const svg = $("legAnim");
+  if (!svg) return;
+  const W = 520, H = 185, cx = 78, cy = 80, coilR = 28, maxLegPx = 310;
+  const legPx = fullL > 0 ? Math.max(0, (animL / fullL) * maxLegPx) : 0;
+  const legEndX = cx + legPx;
+  const F = (fullM > 0 && animL > 0) ? fullM / animL : 0;
+  const arrowLen = (fullM > 0 && fullL > 0 && animL > 0)
+    ? Math.min(82, 38 * (fullL / animL)) : 0;
+  let g = "";
+  // 가이드라인 (최대 다리 위치)
+  g += `<line x1="${cx}" y1="${cy}" x2="${cx + maxLegPx}" y2="${cy}" stroke="#dce6f5" stroke-dasharray="6 5"/>`;
+  // 스프링 코일
+  let sp = ""; const R0 = 4, R1 = coilR, turns = 3.5, steps = 70;
+  for (let i = 0; i <= steps; i++) {
+    const frac = i / steps, ang = frac * turns * 2 * Math.PI, rr = R0 + (R1 - R0) * frac;
+    sp += (i === 0 ? "M" : "L") + (cx + rr * Math.cos(ang)).toFixed(1) + " " + (cy + rr * Math.sin(ang)).toFixed(1) + " ";
+  }
+  g += `<path d="${sp}" fill="none" stroke="#2f7df6" stroke-width="2"/>`;
+  // 다리(레그)
+  if (legPx > 4 && animL > 0.5) {
+    g += `<line x1="${cx}" y1="${cy}" x2="${legEndX.toFixed(1)}" y2="${cy}" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>`;
+    g += `<circle cx="${legEndX.toFixed(1)}" cy="${cy}" r="5" fill="#2563eb"/>`;
+  }
+  // 힘 화살표 (다리 끝에서 아래로)
+  if (arrowLen > 3 && legPx > 18) {
+    const ax = legEndX, ay = cy + 6, tipY = ay + arrowLen;
+    g += `<line x1="${ax.toFixed(1)}" y1="${ay}" x2="${ax.toFixed(1)}" y2="${tipY.toFixed(1)}" stroke="#ef4444" stroke-width="3" stroke-linecap="round"/>`;
+    g += `<polygon points="${ax.toFixed(1)},${(tipY+7).toFixed(1)} ${(ax-5).toFixed(1)},${tipY.toFixed(1)} ${(ax+5).toFixed(1)},${tipY.toFixed(1)}" fill="#ef4444"/>`;
+    if (F > 0 && animL > 1) {
+      const lx = ax > 400 ? ax - 8 : ax + 9, anc = ax > 400 ? "end" : "start";
+      g += `<text x="${lx.toFixed(1)}" y="${((ay + tipY) / 2 + 4).toFixed(1)}" fill="#ef4444" font-size="12" font-weight="bold" text-anchor="${anc}">F = ${fmt(F,1)} N</text>`;
+    }
+  }
+  // L 치수선 (다리 위쪽)
+  if (legPx > 18 && animL > 0.5) {
+    const dimY = cy - 24, lbX = (cx + legEndX) / 2;
+    g += `<line x1="${cx}" y1="${dimY}" x2="${legEndX.toFixed(1)}" y2="${dimY}" stroke="#f59e0b" stroke-width="1.5"/>`;
+    g += `<line x1="${cx}" y1="${dimY-5}" x2="${cx}" y2="${dimY+5}" stroke="#f59e0b" stroke-width="1.5"/>`;
+    g += `<line x1="${legEndX.toFixed(1)}" y1="${dimY-5}" x2="${legEndX.toFixed(1)}" y2="${dimY+5}" stroke="#f59e0b" stroke-width="1.5"/>`;
+    g += `<text x="${lbX.toFixed(1)}" y="${(dimY-6).toFixed(1)}" fill="#f59e0b" font-size="13" text-anchor="middle" font-weight="bold">L = ${animL.toFixed(0)} mm</text>`;
+  }
+  // 힌지 중심
+  g += `<circle cx="${cx}" cy="${cy}" r="6" fill="#1f2937"/>`;
+  g += `<text x="${cx}" y="${cy+24}" fill="#6b7280" font-size="11" text-anchor="middle">힌지</text>`;
+  // 토크 고정 안내
+  if (fullM > 0) {
+    g += `<text x="${W-8}" y="18" fill="#6b7280" font-size="12" text-anchor="end">M = ${fmt(fullM,1)} N·mm (일정)</text>`;
+    g += `<text x="${W-8}" y="35" fill="#9aa3b2" font-size="11" text-anchor="end">F = M ÷ L</text>`;
+  } else {
+    g += `<text x="${W/2}" y="${H/2+8}" fill="#b0b8cc" font-size="14" text-anchor="middle">스프링 값을 넣으면 시작돼요</text>`;
+  }
+  svg.innerHTML = g;
 }
 
 // ===================== 전 구간 토크 마진 그래프 (어른용) =====================
