@@ -270,6 +270,19 @@
         <span class="help">도어 하나의 무게예요. 저울이나 제품 사양을 보면 돼요.</span>
         <input id="dweight" type="number" step="1" value="15" inputmode="decimal">
       </label>
+      <span class="lbl" style="margin-bottom:2px;margin-top:14px">경첩(힌지) 위치 <span class="unit">(힘 계산 기준)</span></span>
+      <span class="help">경첩이 어느 쪽에 있나요? 무게중심까지 팔 길이가 달라져요.</span>
+      <div class="seg" id="hingeModeSeg">
+        <button data-mode="long" class="active">보수적(자동)</button>
+        <button data-mode="w">가로 열림</button>
+        <button data-mode="h">세로 열림</button>
+      </div>
+      <span class="lbl" style="margin-bottom:2px;margin-top:14px">스프링 개수</span>
+      <span class="help">도어 힌지에 토션스프링이 몇 개 들어가나요?</span>
+      <div class="seg" id="springCountSeg">
+        <button data-count="1" class="active">1개</button>
+        <button data-count="2">2개 (양쪽)</button>
+      </div>
     </div>
 
     <div class="card">
@@ -310,7 +323,7 @@
   <!-- ============ 결과 (오른쪽) ============ -->
   <div class="col-results">
     <div class="card">
-      <h2>🎯 실험 결과 <span class="spacer"></span><button id="resetBtn" class="btn-ghost" type="button">🔄 처음으로</button></h2>
+      <h2>🎯 실험 결과 <span class="spacer"></span><button id="shareBtn" class="btn-ghost" type="button">🔗 공유</button><button id="copyBtn" class="btn-ghost" type="button">📋 복사</button><button id="resetBtn" class="btn-ghost" type="button">🔄 처음으로</button></h2>
 
       <div id="bigForce" class="big-result"></div>
 
@@ -335,6 +348,8 @@
         <span class="chip" id="chipFatigue">반복 –</span>
         <span class="chip" id="chipSafe">한 번 쓸 때 –</span>
         <span class="chip" id="chipHold">프리로드 –</span>
+        <span class="chip" id="chipC">지수 C –</span>
+        <span class="chip" id="chipSet">셋(영구변형) –</span>
       </div>
     </div>
 
@@ -377,11 +392,12 @@
         <div class="metric"><div class="k">피로 안전율 (Goodman)</div><div class="v"><span id="r_nf">–</span> <span class="u">n<sub>f</sub></span></div></div>
         <div class="metric"><div class="k">다리 굽힘응력 (곧은 다리)</div><div class="v"><span id="r_legsig">–</span> <span class="u">MPa</span></div></div>
         <div class="metric"><div class="k">다리 안전율</div><div class="v"><span id="r_legsf">–</span> <span class="u">SF</span></div></div>
+        <div class="metric"><div class="k">유효 코일 수 n_eff (B-5 다리 보정)</div><div class="v"><span id="r_neff">–</span></div></div>
       </div>
       <b>전 구간 토크 마진 (닫힘→열림 · 저항 일정 가정, 보수적)</b>
       <div class="chart-wrap"><svg id="chart" viewBox="0 0 520 280"></svg></div>
       <div style="margin-top:10px">
-        <b>자가 테스트 (공식 검산)</b>
+        <b>자가 테스트 (공식 검산 · 다리 보정 적용 전 기준)</b>
         <div id="tests" style="margin-top:6px"></div>
       </div>
     </details>
@@ -457,6 +473,9 @@ let diaMode = "mean";
 let legMode = "manual";  // manual | auto (다리 길이 결정 방식)
 let lifeMode = "high";   // low | mid | high (작동 빈도)
 let peenMode = "no";     // no | yes (쇼트피닝)
+let springCount = 1;     // 스프링 개수 (1 | 2)
+let hingeMode = "long";  // 경첩 위치: "long" 보수적 | "w" 가로 열림 | "h" 세로 열림
+let lastRender = {};     // 결과 공유·복사용 캐시
 const $ = (id) => document.getElementById(id);
 
 // 도어 애니메이션 상태 (입력에 따라 갱신)
@@ -523,20 +542,22 @@ function render() {
   const Sut = parseFloat($("Sut").value) || null;
 
   const valid = d > 0 && D > d && n > 0 && E > 0;
-  // 토크 M은 다리 길이와 무관 → 먼저 산출 (L=1 기준)
-  const base = valid ? computeSpring({ E, d, D, n, L: 1, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
+  // 보정 전 base: auto-L 역산용 (L=1 기준, 원본 n 사용)
+  const base_raw = valid ? computeSpring({ E, d, D, n, L: 1, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
 
   // 다리 길이 결정: 직접 입력 vs 원하는 힘으로 자동 계산 (L = M / F)
   let L;
   if (legMode === "auto") {
     const Fwant = parseFloat($("fwant").value) || 0;
-    L = (base && Fwant > 0) ? base.M / Fwant : 0;
+    L = (base_raw && Fwant > 0) ? base_raw.M / Fwant : 0;
     $("legAutoOut").textContent = (L > 0) ? fmt(L, 1) + " mm" : "–";
   } else {
     L = parseFloat($("L").value) || 0;
   }
 
-  const r = valid ? computeSpring({ E, d, D, n, L, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
+  // B-5 다리 유효 코일 수 보정 (Shigley): n_eff = n + 2L/(3πD), 강성이 소폭 감소
+  const n_eff = (valid && D > 0 && L > 0) ? n + 2 * L / (3 * Math.PI * D) : n;
+  const r = valid ? computeSpring({ E, d, D, n: n_eff, L, thetaDeg, Sut, allowFrac: mat.allowFrac }) : null;
   legAnimState.L = L > 0 ? L : 0;
   legAnimState.M = r ? r.M : 0;
 
@@ -553,16 +574,21 @@ function render() {
   const ddep = parseFloat($("dd").value) || 0;
   const dhei = parseFloat($("dh").value) || 0;
   const weightG = parseFloat($("dweight").value) || 0;
-  const armDoor = Math.max(dwid, ddep, dhei) / 2;        // 무게중심까지 거리 (mm)
+  let armDoor;
+  if (hingeMode === "w") armDoor = dwid / 2;
+  else if (hingeMode === "h") armDoor = dhei / 2;
+  else armDoor = Math.max(dwid, ddep, dhei) / 2;         // "long": 보수적
   const Wforce  = weightG / 1000 * G;                    // 도어 무게 힘 (N)
   const M_grav  = Wforce * armDoor;                      // 🛏️ 눕혀서: 무게 들기 토크 (N·mm)
   const fricFrac = Math.max(0, (parseFloat($("fricPct").value) || 0) / 100);
   const M_fric  = fricFrac * M_grav;                     // 🧍 세워서: 마찰만 (사용자 입력 비율)
   const haveDoor = weightG > 0 && armDoor > 0 && L > 0;
-  const F_req_h = haveDoor ? M_grav / L : null;          // 비교용 힘 (N, 스프링 팔 기준)
-  const F_req_v = haveDoor ? M_fric / L : null;
-  const pass_h = (r && haveDoor) ? r.M >= M_grav : null;
-  const pass_v = (r && haveDoor) ? r.M >= M_fric : null;
+  const M_req_h = haveDoor ? M_grav / springCount : null;  // 스프링 1개당 눕혀서 필요 토크
+  const M_req_v = haveDoor ? M_fric / springCount : null;  // 스프링 1개당 세워서 필요 토크
+  const F_req_h = (haveDoor && L > 0) ? M_req_h / L : null;
+  const F_req_v = (haveDoor && L > 0) ? M_req_v / L : null;
+  const pass_h = (r && haveDoor) ? r.M >= M_req_h : null;
+  const pass_v = (r && haveDoor) ? r.M >= M_req_v : null;
 
   // ---- 결과 상태 결정 (큰 결과 + 모바일 요약 공용) ----
   let st;
@@ -647,6 +673,24 @@ function render() {
   const chipHold = $("chipHold");
   chipHold.textContent = (theta0 > 0 && r) ? `🔒 닫힘 유지력 ${fmt(preF, 1)} N` : "🔒 프리로드 없음";
 
+  // C 범위 경고
+  const chipCEl = $("chipC");
+  if (r) {
+    const Cv = r.C;
+    if (Cv < 4)       { chipCEl.textContent = `⚠️ 지수 C=${fmt(Cv,1)} 너무 작음 (4↑ 권장)`;  chipCEl.style.cssText = "background:#fdecec;border-color:var(--bad)"; }
+    else if (Cv > 16) { chipCEl.textContent = `⚠️ 지수 C=${fmt(Cv,1)} 너무 큼 (↓16 권장)`;   chipCEl.style.cssText = "background:#fdecec;border-color:var(--bad)"; }
+    else              { chipCEl.textContent = `✅ 지수 C=${fmt(Cv,1)} 정상범위`;               chipCEl.style.cssText = ""; }
+  } else { chipCEl.textContent = "지수 C –"; chipCEl.style.cssText = ""; }
+
+  // 스프링 셋(영구변형) 경고
+  const chipSetEl = $("chipSet");
+  if (r && r.Sut && r.sigma > 0) {
+    const setR = r.sigma / r.Sut;
+    if (setR > 0.65)      { chipSetEl.textContent = `⚠️ 셋 위험 (σ/Sut=${fmt(setR,2)})`; chipSetEl.style.cssText = "background:#fdecec;border-color:var(--bad)"; }
+    else if (setR > 0.55) { chipSetEl.textContent = `⚡ 셋 주의 (σ/Sut=${fmt(setR,2)})`; chipSetEl.style.cssText = "background:#fef6e7;border-color:var(--warn)"; }
+    else                  { chipSetEl.textContent = `✅ 셋 안전 (σ/Sut=${fmt(setR,2)})`; chipSetEl.style.cssText = ""; }
+  } else { chipSetEl.textContent = "셋(영구변형) –"; chipSetEl.style.cssText = ""; }
+
   // ---- 다리(곧은 부분) 굽힘응력: 뿌리 모멘트 = 스프링 토크 M, 곡률보정 없음 ----
   const legSig = r ? 32 * r.M / (Math.PI * Math.pow(d, 3)) : null;
   const legSF  = (legSig && Sut) ? (mat.allowFrac * Sut) / legSig : null;
@@ -659,7 +703,7 @@ function render() {
   const stroke = Math.max(0, thetaDeg - theta0);
   const peakM = r ? r.M : 0;
   let fullPass = null, minMargin = null;
-  if (r && haveDoor) { minMargin = preM - M_grav; fullPass = minMargin >= 0; }
+  if (r && haveDoor) { minMargin = preM - M_req_h; fullPass = minMargin >= 0; }
 
   const chipFull = $("chipFull");
   if (r && haveDoor) {
@@ -673,9 +717,13 @@ function render() {
   drawMarginChart({
     haveDoor: !!(r && haveDoor),
     stroke, preM, peakM,
-    M_grav: haveDoor ? M_grav : 0,
-    M_fric: haveDoor ? M_fric : 0,
+    M_grav: haveDoor ? M_req_h : 0,
+    M_fric: haveDoor ? M_req_v : 0,
   });
+  $("r_neff").textContent = (valid && D > 0 && L > 0) ? fmt(n_eff, 3) : "–";
+  lastRender = { r, d, D, n, n_eff, L, thetaDeg, haveDoor,
+    M_req_h, M_req_v, F_req_h, F_req_v, pass_h, pass_v,
+    dwid, ddep, dhei, weightG };
   drawDiagram(d, D, thetaDeg, r ? r.C : 0);
 
   // ---- 도어 애니메이션 상태 + 설명 ----
@@ -967,6 +1015,71 @@ function runTests() {
   out.innerHTML = html;
 }
 
+// ===================== 공유 · 복사 =====================
+function shareUrl() {
+  const p = new URLSearchParams();
+  ['material','d','diaInput','n','L','theta','dw','dd','dh','dweight','theta0','fwant','fricPct'].forEach(id => {
+    const el = $(id); if (el) p.set(id, el.value);
+  });
+  p.set('dmode', diaMode); p.set('lmode', legMode);
+  p.set('limode', lifeMode); p.set('pmode', peenMode);
+  p.set('sc', springCount); p.set('hm', hingeMode);
+  const url = location.origin + location.pathname + '?' + p.toString();
+  navigator.clipboard.writeText(url).catch(() => {});
+  const btn = $("shareBtn");
+  btn.textContent = "✅ 복사됨!";
+  setTimeout(() => { btn.textContent = "🔗 공유"; }, 2000);
+}
+
+function copyResult() {
+  const { r, d, D, n, n_eff, L, thetaDeg, haveDoor,
+          F_req_h, F_req_v, pass_h, pass_v, dwid, ddep, dhei, weightG } = lastRender;
+  if (!r) return;
+  const mat = MATERIALS[$("material").value];
+  const lines = [
+    "🌀 토션스프링 실험실 결과",
+    `재질: ${mat.name}`,
+    `철사 d=${d}mm  코일 D=${fmt(D,1)}mm  감김 n=${n} (n_eff=${fmt(n_eff,2)})`,
+    `다리 L=${fmt(L,1)}mm  비틀림 θ=${thetaDeg}°`,
+    ``,
+    `각 강성: ${fmt(r.kDeg,3)} N·mm/°  스프링지수: C=${fmt(r.C,1)}`,
+    `작동 토크: ${fmt(r.M,1)} N·mm  다리 끝 힘: ${fmt(r.F,2)} N`,
+    `굽힘응력: ${fmt(r.sigma,0)} MPa  안전율: ${r.SF ? fmt(r.SF,2) : "–"}`,
+  ];
+  if (haveDoor) {
+    lines.push(``, `도어: ${dwid}×${ddep}×${dhei}mm  ${weightG}g  스프링 ${springCount}개`);
+    if (F_req_h != null) lines.push(`눕혀서 필요: ${fmt(F_req_h,1)} N → ${pass_h ? "✅ 충분" : "❌ 부족"}`);
+    if (F_req_v != null) lines.push(`세워서 필요: ${fmt(F_req_v,1)} N → ${pass_v ? "✅ 충분" : "❌ 부족"}`);
+  }
+  lines.push(``, `https://mungbws1031.github.io/torsion-spring-simulator/`);
+  navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
+  const btn = $("copyBtn");
+  btn.textContent = "✅ 복사됨!";
+  setTimeout(() => { btn.textContent = "📋 복사"; }, 2000);
+}
+
+function loadFromUrl() {
+  const p = new URLSearchParams(location.search);
+  if (!p.toString()) return;
+  ['material','d','diaInput','n','L','theta','dw','dd','dh','dweight','theta0','fwant','fricPct'].forEach(id => {
+    if (p.has(id) && $(id)) $(id).value = p.get(id);
+  });
+  if (p.has('dmode')) { diaMode = p.get('dmode'); $('diaLabel').textContent = { mean:"가운데 지름", od:"바깥 지름", id:"안쪽 지름" }[diaMode] || "가운데 지름"; }
+  if (p.has('lmode')) { legMode = p.get('lmode'); $('legManual').style.display = legMode==='manual'?'':'none'; $('legAuto').style.display = legMode==='auto'?'':'none'; }
+  if (p.has('limode')) lifeMode = p.get('limode');
+  if (p.has('pmode')) peenMode = p.get('pmode');
+  if (p.has('sc')) springCount = parseInt(p.get('sc')) || 1;
+  if (p.has('hm')) hingeMode = p.get('hm');
+  $("dmode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === diaMode));
+  $("legMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === legMode));
+  $("lifeMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === lifeMode));
+  $("peenMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === peenMode));
+  $("hingeModeSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === hingeMode));
+  $("springCountSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.count === String(springCount)));
+  syncRanges();
+  applyMaterial();
+}
+
 // ===================== 이벤트 =====================
 const DEFAULTS = { material:"music", d:"1.0", diaInput:"10", n:"5", L:"20", theta:"90", dw:"40", dd:"30", dh:"10", dweight:"15", theta0:"0", fwant:"3", fricPct:"30" };
 const RANGE_OF = { d:"dRange", diaInput:"diaRange", n:"nRange", L:"LRange", theta:"thetaRange", theta0:"pl0Range" };
@@ -1026,21 +1139,45 @@ function bind() {
       render();
     }));
 
+  // 경첩 위치 토글
+  $("hingeModeSeg").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      hingeMode = b.dataset.mode;
+      $("hingeModeSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+      render();
+    }));
+
+  // 스프링 개수 토글
+  $("springCountSeg").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      springCount = parseInt(b.dataset.count);
+      $("springCountSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+      render();
+    }));
+
+  // 공유 / 복사 버튼
+  $("shareBtn").addEventListener("click", shareUrl);
+  $("copyBtn").addEventListener("click", copyResult);
+
   // 처음으로 (기본값 복원)
   $("resetBtn").addEventListener("click", () => {
     Object.entries(DEFAULTS).forEach(([id, v]) => { $(id).value = v; });
     diaMode = "mean"; legMode = "manual"; lifeMode = "high"; peenMode = "no";
+    springCount = 1; hingeMode = "long";
     $("dmode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "mean"));
     $("legMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "manual"));
     $("legManual").style.display = ""; $("legAuto").style.display = "none";
     $("lifeMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "high"));
     $("peenMode").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "no"));
+    $("hingeModeSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.mode === "long"));
+    $("springCountSeg").querySelectorAll("button").forEach(x => x.classList.toggle("active", x.dataset.count === "1"));
     $("diaLabel").textContent = "가운데 지름";
     syncRanges();
     applyMaterial();
     render();
   });
 
+  loadFromUrl();
   runTests();
   render();
   startAnim();
